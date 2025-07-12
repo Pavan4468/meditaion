@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "555512491908",
+    "project_id": "pamtest-e3766",
+    "storage_bucket": "pamtest-e3766.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:555512491908:android:6f219acc21238da5b0b7d1",
+        "android_client_info": {
+          "package_name": "com.example.medi"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "555512491908-gqn9sbufcn1luac14v5cr4i40bnpvhnn.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCKRJQ_3WcqehG7_V1iMwVrbNiBtH8MVAo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "555512491908-gqn9sbufcn1luac14v5cr4i40bnpvhnn.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
