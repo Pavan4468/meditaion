@@ -14,7 +14,7 @@ class ProgressTab extends StatefulWidget {
 
 class _ProgressTabState extends State<ProgressTab> with SingleTickerProviderStateMixin {
   final TextEditingController _reflectionController = TextEditingController();
-  List<int> weeklySessions = [0, 0, 0, 0, 0, 0, 0];
+  List<int> weeklySessions = List.filled(7, 0); // Initialize with zeros for all 7 days
   int dayStreak = 0;
   int totalSessions = 0;
   String avgSession = '0m';
@@ -27,22 +27,32 @@ class _ProgressTabState extends State<ProgressTab> with SingleTickerProviderStat
     super.initState();
     _animationController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 800),
+      duration: const Duration(milliseconds: 1000),
     );
     _animation = CurvedAnimation(
       parent: _animationController,
-      curve: Curves.easeOut,
+      curve: Curves.easeInOut,
     );
     _animationController.forward();
     _loadUserData();
   }
 
   Future<void> _loadUserData() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user != null) {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        setState(() {
+          _isLoading = false;
+        });
+        return;
+      }
+
       final now = DateTime.now();
-      final startOfWeek = now.subtract(Duration(days: now.weekday - 1));
+      final startOfWeek = DateTime(now.year, now.month, now.day)
+          .subtract(Duration(days: now.weekday - 1));
       final endOfWeek = startOfWeek.add(const Duration(days: 6, hours: 23, minutes: 59));
+
+      // Fetch weekly sessions
       final querySnapshot = await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
@@ -51,31 +61,37 @@ class _ProgressTabState extends State<ProgressTab> with SingleTickerProviderStat
           .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(endOfWeek))
           .get();
 
-      List<int> tempSessions = [0, 0, 0, 0, 0, 0, 0];
+      List<int> tempSessions = List.filled(7, 0);
       int totalDuration = 0;
       int sessionCount = 0;
       Set<String> uniqueDays = {};
 
       for (var doc in querySnapshot.docs) {
         final data = doc.data();
-        final timestamp = (data['timestamp'] as Timestamp).toDate();
+        final timestamp = (data['timestamp'] as Timestamp?)?.toDate();
+        if (timestamp == null) continue;
+        
         final dayIndex = timestamp.weekday - 1;
         tempSessions[dayIndex]++;
         uniqueDays.add(DateFormat('yyyy-MM-dd').format(timestamp));
-        totalDuration += data['duration'] as int;
+        totalDuration += (data['duration'] as num?)?.toInt() ?? 0;
         sessionCount++;
       }
 
+      // Fetch all sessions for streak and total
       final allSessions = await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
           .collection('sessions')
           .orderBy('timestamp', descending: true)
           .get();
+
       int streak = 0;
       DateTime? lastDate;
       for (var doc in allSessions.docs) {
-        final date = (doc['timestamp'] as Timestamp).toDate();
+        final date = (doc['timestamp'] as Timestamp?)?.toDate();
+        if (date == null) continue;
+        
         final formattedDate = DateFormat('yyyy-MM-dd').format(date);
         if (lastDate == null) {
           lastDate = date;
@@ -83,9 +99,7 @@ class _ProgressTabState extends State<ProgressTab> with SingleTickerProviderStat
           continue;
         }
         final lastFormatted = DateFormat('yyyy-MM-dd').format(lastDate);
-        if (formattedDate ==
-            DateFormat('yyyy-MM-dd')
-                .format(lastDate.subtract(const Duration(days: 1)))) {
+        if (formattedDate == DateFormat('yyyy-MM-dd').format(lastDate.subtract(const Duration(days: 1)))) {
           streak++;
           lastDate = date;
         } else {
@@ -97,28 +111,40 @@ class _ProgressTabState extends State<ProgressTab> with SingleTickerProviderStat
         weeklySessions = tempSessions;
         dayStreak = streak;
         totalSessions = allSessions.size;
-        avgSession =
-            sessionCount > 0 ? '${(totalDuration / sessionCount).round()}m' : '0m';
+        avgSession = sessionCount > 0 ? '${(totalDuration / sessionCount).round()}m' : '0m';
         _isLoading = false;
       });
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error loading data: $e')),
+      );
     }
   }
 
   Future<void> _saveReflection() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null && _reflectionController.text.trim().isNotEmpty) {
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .collection('reflections')
-          .add({
-        'text': _reflectionController.text.trim(),
-        'timestamp': FieldValue.serverTimestamp(),
-      });
-      _reflectionController.clear();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Reflection saved successfully')),
-      );
+      try {
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .collection('reflections')
+            .add({
+          'text': _reflectionController.text.trim(),
+          'timestamp': FieldValue.serverTimestamp(),
+        });
+        _reflectionController.clear();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Reflection saved successfully')),
+        );
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error saving reflection: $e')),
+        );
+      }
     }
   }
 
@@ -196,7 +222,7 @@ class _ProgressTabState extends State<ProgressTab> with SingleTickerProviderStat
                         _buildStatCard('$dayStreak', 'Day Streak', const Color(0xFF8B5CF6)),
                         _buildStatCard('$totalSessions', 'Total Sessions', const Color(0xFF8B5CF6)),
                         _buildStatCard(
-                            '${weeklySessions.reduce((a, b) => a + b)}/14', 'This Week', const Color(0xFF8B5CF6)),
+                            '${weeklySessions.reduce((a, b) => a + b)}', 'This Week', const Color(0xFF8B5CF6)),
                         _buildStatCard(avgSession, 'Avg. Session', const Color(0xFF8B5CF6)),
                       ],
                     ),
@@ -211,9 +237,9 @@ class _ProgressTabState extends State<ProgressTab> with SingleTickerProviderStat
                     ),
                     const SizedBox(height: 20),
                     Container(
-                      height: 230,
+                      height: 250,
                       decoration: BoxDecoration(
-                        color: const Color(0xFF8B5CF6),
+                        color: const Color(0xFF2A2A2A),
                         borderRadius: BorderRadius.circular(16),
                         boxShadow: [
                           BoxShadow(
@@ -249,7 +275,7 @@ class _ProgressTabState extends State<ProgressTab> with SingleTickerProviderStat
                     Container(
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF8B5CF6),
+                        color: const Color(0xFF2A2A2A),
                         borderRadius: BorderRadius.circular(16),
                         boxShadow: [
                           BoxShadow(
@@ -310,7 +336,7 @@ class _ProgressTabState extends State<ProgressTab> with SingleTickerProviderStat
                     Container(
                       padding: const EdgeInsets.all(20),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF8B5CF6),
+                        color: const Color(0xFF2A2A2A),
                         borderRadius: BorderRadius.circular(16),
                         boxShadow: [
                           BoxShadow(
@@ -411,37 +437,48 @@ class WeeklyProgressPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final barPaint = Paint()
       ..style = PaintingStyle.fill
-      ..color = const Color(0xFFF5F5F5)
+      ..color = const Color(0xFF8B5CF6)
       ..shader = LinearGradient(
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
         colors: [
-          const Color(0xFFF5F5F5),
-          const Color(0xFFD1D5DB),
+          const Color(0xFF8B5CF6),
+          const Color(0xFF6B46C1),
         ],
       ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
 
+    final backgroundPaint = Paint()
+      ..style = PaintingStyle.fill
+      ..color = const Color(0xFF2A2A2A);
+
     final labelBackgroundPaint = Paint()
       ..style = PaintingStyle.fill
-      ..color = const Color(0xFF8B5CF6).withOpacity(0.3);
+      ..color = const Color(0xFFF5F5F5).withOpacity(0.2);
 
-    final barWidth = size.width / 9;
-    const maxSessions = 5; // Increased to make bars shorter
-    final barHeightUnit = (size.height - 50) / maxSessions;
+    final barWidth = size.width / 8; // Adjusted for better spacing
+    const maxSessions = 10; // Reasonable max for scaling
+    final barHeightUnit = (size.height - 60) / maxSessions;
 
-    canvas.clipRect(Rect.fromLTWH(0, 0, size.width, size.height));
+    // Draw background
+    canvas.drawRect(
+      Rect.fromLTWH(0, 0, size.width, size.height),
+      backgroundPaint,
+    );
 
-    for (int i = 0; i < sessions.length; i++) {
-      final barHeight = sessions[i] * barHeightUnit * animationValue;
-      final x = i * barWidth + barWidth * 0.5;
+    // Draw bars and labels
+    for (int i = 0; i < 7; i++) {
+      final barHeight = (sessions[i] * barHeightUnit * animationValue).clamp(0.0, size.height - 60);
+      final x = i * barWidth + barWidth * 0.75;
+      
+      // Draw bar
       final rect = RRect.fromRectAndRadius(
-        Rect.fromLTWH(x, size.height - 40 - barHeight, barWidth * 0.6, barHeight),
-        const Radius.circular(6),
+        Rect.fromLTWH(x, size.height - 50 - barHeight, barWidth * 0.5, barHeight),
+        const Radius.circular(8),
       );
-      canvas.drawShadow(Path()..addRRect(rect), Colors.black.withOpacity(0.2), 4, true);
-
+      canvas.drawShadow(Path()..addRRect(rect), Colors.black.withOpacity(0.3), 4, true);
       canvas.drawRRect(rect, barPaint);
 
+      // Draw session count
       final sessionParagraph = ui.ParagraphBuilder(ui.ParagraphStyle(
         fontSize: 12,
         fontWeight: FontWeight.w600,
@@ -460,23 +497,24 @@ class WeeklyProgressPainter extends CustomPainter {
         ))
         ..addText('${sessions[i]}');
       final sessionParagraphBuilt = sessionParagraph.build()
-        ..layout(ui.ParagraphConstraints(width: barWidth * 0.6));
+        ..layout(ui.ParagraphConstraints(width: barWidth * 0.5));
       canvas.drawParagraph(
         sessionParagraphBuilt,
-        Offset(x + (barWidth * 0.6 - sessionParagraphBuilt.width) / 2, size.height - 40 - barHeight - 18),
+        Offset(x + (barWidth * 0.5 - sessionParagraphBuilt.width) / 2, size.height - 50 - barHeight - 20),
       );
 
+      // Draw day label
       final labelOval = Rect.fromLTWH(
-        x - barWidth * 0.45,
-        size.height - 30,
-        barWidth * 0.9,
+        x - barWidth * 0.35, // Increased width for label
+        size.height - 40,
+        barWidth * 0.7, // Increased width for label
         20,
       );
       canvas.drawOval(labelOval, labelBackgroundPaint);
 
       final dayParagraph = ui.ParagraphBuilder(ui.ParagraphStyle(
-        fontSize: 14,
-        fontWeight: FontWeight.w700,
+        fontSize: 10, // Reduced font size to prevent wrapping
+        fontWeight: FontWeight.w600,
         fontFamily: GoogleFonts.poppins().fontFamily,
         textAlign: TextAlign.center,
       ))
@@ -485,10 +523,10 @@ class WeeklyProgressPainter extends CustomPainter {
         ))
         ..addText(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][i]);
       final dayParagraphBuilt = dayParagraph.build()
-        ..layout(ui.ParagraphConstraints(width: barWidth * 0.9));
+        ..layout(ui.ParagraphConstraints(width: barWidth * 0.7)); // Increased width to fit text
       canvas.drawParagraph(
         dayParagraphBuilt,
-        Offset(x + (barWidth * 0.9 - dayParagraphBuilt.width) / 2, size.height - 28),
+        Offset(x + (barWidth * 0.7 - dayParagraphBuilt.width) / 2, size.height - 36),
       );
     }
   }

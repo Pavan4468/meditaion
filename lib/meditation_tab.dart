@@ -19,11 +19,22 @@ class _MeditationTabState extends State<MeditationTab> with TickerProviderStateM
   AnimationController? _timerController;
   AnimationController? _pulseController;
   Animation<double>? _pulseAnimation;
+  AnimationController? _blinkController;
+  Animation<double>? _blinkAnimation;
   bool _isLoading = true;
+  bool _showIntroScreen = true;
+  String? _userName;
 
   @override
   void initState() {
     super.initState();
+    _blinkController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 800),
+    )..repeat(reverse: true);
+    _blinkAnimation = Tween<double>(begin: 0.8, end: 1.2).animate(
+      CurvedAnimation(parent: _blinkController!, curve: Curves.easeInOut),
+    );
     _timerController = AnimationController(
       vsync: this,
       duration: Duration(seconds: remainingSeconds),
@@ -48,6 +59,15 @@ class _MeditationTabState extends State<MeditationTab> with TickerProviderStateM
         curve: Curves.easeInOutSine,
       ),
     );
+    // Start 30-second intro timer
+    Future.delayed(const Duration(seconds: 30), () {
+      if (mounted) {
+        setState(() {
+          _showIntroScreen = false;
+        });
+        _blinkController?.stop();
+      }
+    });
     _loadUserData();
   }
 
@@ -60,6 +80,10 @@ class _MeditationTabState extends State<MeditationTab> with TickerProviderStateM
           .collection('meditation_settings')
           .doc('current')
           .get();
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
       if (doc.exists) {
         final data = doc.data()!;
         setState(() {
@@ -67,6 +91,11 @@ class _MeditationTabState extends State<MeditationTab> with TickerProviderStateM
           selectedDuration = data['selectedDuration'] ?? 30;
           remainingSeconds = selectedDuration * 60;
           _timerController?.duration = Duration(seconds: remainingSeconds);
+        });
+      }
+      if (userDoc.exists) {
+        setState(() {
+          _userName = userDoc.data()?['name'] ?? user.displayName ?? 'User';
           _isLoading = false;
         });
       } else {
@@ -204,11 +233,32 @@ class _MeditationTabState extends State<MeditationTab> with TickerProviderStateM
   void dispose() {
     _timerController?.dispose();
     _pulseController?.dispose();
+    _blinkController?.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_showIntroScreen) {
+      return Scaffold(
+        backgroundColor: Colors.black,
+        body: Center(
+          child: AnimatedBuilder(
+            animation: _blinkAnimation!,
+            builder: (context, child) {
+              return Transform.scale(
+                scale: _blinkAnimation!.value,
+                child: Icon(
+                  Icons.local_fire_department,
+                  color: Colors.red,
+                  size: 100,
+                ),
+              );
+            },
+          ),
+        ),
+      );
+    }
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator(color: Color(0xFF8B5CF6)));
     }
@@ -297,6 +347,38 @@ class _MeditationTabState extends State<MeditationTab> with TickerProviderStateM
                     ),
                     const SizedBox(height: 32),
                     _buildMeditationTimer(context),
+                    const SizedBox(height: 32),
+                    Align(
+                      alignment: Alignment.center,
+                      child: ElevatedButton(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const FeedbackPage(),
+                            ),
+                          );
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF8B5CF6),
+                          foregroundColor: const Color(0xFFF5F5F5),
+                          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          elevation: 8,
+                          shadowColor: const Color(0xFF8B5CF6).withOpacity(0.6),
+                        ),
+                        child: Text(
+                          'View Feedback',
+                          style: GoogleFonts.poppins(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w600,
+                            color: const Color(0xFFF5F5F5),
+                          ),
+                        ),
+                      ),
+                    ),
                     const SizedBox(height: 32),
                     Text(
                       'Guidance',
@@ -615,6 +697,358 @@ class _MeditationTabState extends State<MeditationTab> with TickerProviderStateM
                 ),
               ],
             ),
+        ],
+      ),
+    );
+  }
+}
+
+class FeedbackPage extends StatefulWidget {
+  const FeedbackPage({super.key});
+
+  @override
+  _FeedbackPageState createState() => _FeedbackPageState();
+}
+
+class _FeedbackPageState extends State<FeedbackPage> {
+  final TextEditingController _feedbackController = TextEditingController();
+  final TextEditingController _nameController = TextEditingController();
+  List<Map<String, dynamic>> _feedbackList = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadFeedback();
+  }
+
+  Future<void> _loadFeedback() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      final querySnapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('feedback')
+          .orderBy('timestamp', descending: true)
+          .get();
+      setState(() {
+        _feedbackList = querySnapshot.docs.map((doc) => doc.data()).toList();
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _saveFeedback() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null &&
+        _feedbackController.text.trim().isNotEmpty &&
+        _nameController.text.trim().isNotEmpty) {
+      try {
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .collection('feedback')
+            .add({
+          'name': _nameController.text.trim(),
+          'text': _feedbackController.text.trim(),
+          'timestamp': FieldValue.serverTimestamp(),
+        });
+        _feedbackController.clear();
+        _nameController.clear();
+        await _loadFeedback();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Feedback saved successfully')),
+        );
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error saving feedback: $e')),
+        );
+      }
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter both name and feedback')),
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _feedbackController.dispose();
+    _nameController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF121212),
+        elevation: 0,
+        title: Text(
+          'Feedback',
+          style: GoogleFonts.playfairDisplay(
+            fontSize: 30,
+            fontWeight: FontWeight.w700,
+            color: const Color(0xFFF5F5F5),
+          ),
+        ),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Color(0xFFF5F5F5)),
+          onPressed: () => Navigator.pop(context),
+        ),
+      ),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Color(0xFF121212),
+              Color(0xFF2A2A2A),
+            ],
+          ),
+        ),
+        child: SafeArea(
+          child: _isLoading
+              ? const Center(child: CircularProgressIndicator(color: Color(0xFF8B5CF6)))
+              : SingleChildScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 28.0, vertical: 20.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(20),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF2A2A2A),
+                            borderRadius: BorderRadius.circular(16),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.25),
+                                blurRadius: 12,
+                                offset: const Offset(0, 6),
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Share Your Experience',
+                                style: GoogleFonts.playfairDisplay(
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.w700,
+                                  color: const Color(0xFFF5F5F5),
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              Row(
+                                children: [
+                                  const Icon(
+                                    Icons.person,
+                                    color: Color(0xFF8B5CF6),
+                                    size: 24,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: TextField(
+                                      controller: _nameController,
+                                      style: GoogleFonts.poppins(
+                                        fontSize: 16,
+                                        color: const Color(0xFFF5F5F5),
+                                      ),
+                                      decoration: InputDecoration(
+                                        hintText: 'Enter your name (e.g., Pavan)',
+                                        hintStyle: GoogleFonts.poppins(
+                                          fontSize: 16,
+                                          color: Colors.white70,
+                                        ),
+                                        border: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(12),
+                                          borderSide: BorderSide(
+                                            color: const Color(0xFFF5F5F5).withOpacity(0.3),
+                                          ),
+                                        ),
+                                        filled: true,
+                                        fillColor: Colors.black.withOpacity(0.2),
+                                        contentPadding: const EdgeInsets.all(12),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 16),
+                              TextField(
+                                controller: _feedbackController,
+                                maxLines: 4,
+                                style: GoogleFonts.poppins(
+                                  fontSize: 16,
+                                  color: const Color(0xFFF5F5F5),
+                                ),
+                                decoration: InputDecoration(
+                                  hintText: 'How did your meditation feel today? Any insights?',
+                                  hintStyle: GoogleFonts.poppins(
+                                    fontSize: 16,
+                                    color: Colors.white70,
+                                  ),
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                    borderSide: BorderSide(
+                                      color: const Color(0xFFF5F5F5).withOpacity(0.3),
+                                    ),
+                                  ),
+                                  filled: true,
+                                  fillColor: Colors.black.withOpacity(0.2),
+                                  contentPadding: const EdgeInsets.all(12),
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: ElevatedButton(
+                                  onPressed: _saveFeedback,
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF8B5CF6),
+                                    foregroundColor: const Color(0xFFF5F5F5),
+                                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    elevation: 8,
+                                    shadowColor: const Color(0xFF8B5CF6).withOpacity(0.6),
+                                  ),
+                                  child: Text(
+                                    'Submit Feedback',
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                      color: const Color(0xFFF5F5F5),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 32),
+                        Text(
+                          'Your Feedback History',
+                          style: GoogleFonts.playfairDisplay(
+                            fontSize: 30,
+                            fontWeight: FontWeight.w700,
+                            color: const Color(0xFFF5F5F5),
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        _feedbackList.isEmpty
+                            ? Center(
+                                child: Text(
+                                  'No feedback yet. Share your experience above!',
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 16,
+                                    color: Colors.white70,
+                                  ),
+                                ),
+                              )
+                            : Column(
+                                children: _feedbackList.map((feedback) => Padding(
+                                  padding: const EdgeInsets.only(bottom: 16),
+                                  child: _buildFeedbackCard(
+                                    name: feedback['name'] ?? 'User',
+                                    text: feedback['text'] ?? '',
+                                    timestamp: (feedback['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now(),
+                                    context: context,
+                                  ),
+                                )).toList(),
+                              ),
+                        const SizedBox(height: 48),
+                      ],
+                    ),
+                  ),
+                ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFeedbackCard({
+    required String name,
+    required String text,
+    required DateTime timestamp,
+    required BuildContext context,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [
+            Color(0xFF2A2A2A),
+            Color(0xFF1F1F1F),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.25),
+            blurRadius: 12,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  const Icon(
+                    Icons.person,
+                    color: Color(0xFF8B5CF6),
+                    size: 24,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Name: $name',
+                    style: GoogleFonts.poppins(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFFF5F5F5),
+                    ),
+                  ),
+                ],
+              ),
+              Text(
+                DateFormat('MMM d, yyyy - HH:mm').format(timestamp),
+                style: GoogleFonts.poppins(
+                  fontSize: 12,
+                  color: Colors.white70,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Feedback:',
+            style: GoogleFonts.poppins(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: const Color(0xFFF5F5F5).withOpacity(0.9),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            text,
+            style: GoogleFonts.poppins(
+              fontSize: 14,
+              color: Colors.white70,
+              height: 1.5,
+            ),
+          ),
         ],
       ),
     );
