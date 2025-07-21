@@ -3,7 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'home_tab.dart';
 import 'daily_practice_tab.dart';
 import 'meditation_tab.dart';
-import 'satsang_tab.dart';
+import 'stripepayment.dart';
 import 'progress_tab.dart';
 import 'guide_page.dart';
 import 'knowledge_page.dart';
@@ -23,16 +23,16 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   final List<Widget> _pages = [
     const HomeTab(),
     const DailyPracticeTab(),
+     PaymentScreen(),
     const MeditationTab(),
-    const SatsangTab(),
     const ProgressTab(),
   ];
 
   final List<Color> _iconColors = [
     const Color(0xFFF97316), // Orange for Home
     const Color(0xFF3B82F6), // Blue for Daily Practice
+    const Color(0xFFEAB308), // Yellow for Payment
     const Color(0xFF10B981), // Green for Meditation
-    const Color(0xFFF97316), // Orange for Satsang
     const Color(0xFF8B5CF6), // Purple for Progress
   ];
 
@@ -229,23 +229,23 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                     icon: Transform.scale(
                       scale: _currentIndex == 2 ? _scaleAnimation.value : 1.0,
                       child: Icon(
-                        Icons.self_improvement,
+                        Icons.payment,
                         size: 32,
                         color: _currentIndex == 2 ? _iconColors[2] : Colors.white70,
                       ),
                     ),
-                    label: 'Meditation',
+                    label: 'Pay',
                   ),
                   BottomNavigationBarItem(
                     icon: Transform.scale(
                       scale: _currentIndex == 3 ? _scaleAnimation.value : 1.0,
                       child: Icon(
-                        Icons.spa,
+                        Icons.self_improvement,
                         size: 32,
                         color: _currentIndex == 3 ? _iconColors[3] : Colors.white70,
                       ),
                     ),
-                    label: 'Satsang',
+                    label: 'Meditation',
                   ),
                   BottomNavigationBarItem(
                     icon: Transform.scale(

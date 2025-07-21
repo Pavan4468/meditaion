@@ -32,7 +32,9 @@ dependencies:
     sdk: flutter
   intl: ^0.18.1
   google_fonts: ^6.2.1
-
+  flutter_stripe: ^11.0.0
+  http: ^1.2.2
+  stripe_platform_interface: 11.2.0
   firebase_core: ^3.6.0
   firebase_auth: ^5.3.1
   cloud_firestore: ^5.4.4
